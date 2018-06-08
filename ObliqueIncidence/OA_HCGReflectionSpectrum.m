@@ -1,0 +1,138 @@
+%% OA_HCGReflectionSpectrum.m
+% This program is initially developed by Weijian Yang, and optimized by 
+% Vincent Wang and Weijian Yang, in Connie Chang-Hasnain's Group 
+% in University of California, Berkeley, 2013
+% Paper reference: C. J. Chang-Hasnain and W. Yang, "High contrast gratings for
+% integrated optoelectronics," Adv. Opt. Photon. 4, 379-440 (2012).
+
+%{
+Copyright (C) Regents of the University of California
+
+This file is part of the high contrast grating solver (HCG Solver)
+Written by Weijian Yang, and optimized by Vincent Wang and Weijian Yang
+wjyang@eecs.berkeley.edu
+
+HCG Solver is free software: you can redistribute it and/or modify it under 
+the terms of the GNU General Public License as published by the Free Software 
+Foundation, either version 3 of the License, or (at your option) any later 
+version.
+
+This program is distributed in the hope that it will be useful, 
+but WITHOUT ANY WARRANTY; without even the implied warranty of 
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License 
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+%}
+
+
+% This program calculates the HCG reflection and transmission spectrum with a plane wave
+% incident at an incident angle.
+
+% Input parameters (all parameters are scalars):
+%	a			air gap	width									[m]
+%	s			grating bar width								[m]
+%	lambda		incident light wavelength in vacuum				[m]
+%	tg			grating thickness								[m]
+%	eBar		relative permittivity of grating bar			[1]
+%	uBar		relative permeability of grating bar			[1]
+%	e1			relative permittivity above and below grating	[1]
+%	u1			relative permeability above and below grating	[1]
+%	e2			relative permittivity between grating bars		[1]
+%	u2			relative permeability between grating bars		[1]
+%	theta		incident light angle							[rad]
+%	ord			number of orders								[1]
+%	isTM		1 for TM, 0 for TE								[boolean]
+
+clc;
+clear all;
+close all;
+
+%% HCG parameters
+% User defined parameters
+period=1e-6;                % [m] HCG period
+DC=0.4;                     % [1] HCG duty cycle
+tg=0.52e-6;                 % [m] HCG thickness
+s=DC*period;                % [m] grating bar width
+a=(1-DC)*period;            % [m] air gap width
+nbar=3.48;                  % [1] refractive index of semiconductor
+eBar=nbar^2;                % [1] relative permittivity of grating bar
+uBar=1;                     % [1] relative permeability of grating bar
+e1=1;                       % [1] relative permittivity above and below grating
+u1=1;                       % [1] relative permeability above and below grating
+e2=1;                       % [1] relative permittivity of the grating gap
+u2=1;                       % [1] relative permeability of the grating gap
+theta=50/180*pi;            % [rad] incident angle, with respect to the normal
+ord=10;                     % [1] orders
+isTM=0;                     % [boolean] 1 for TM, 0 for TE
+
+% set the orders for N and M. M is set to be 2N+1, so that the matrix
+% involved in the calculation is square.
+N = ord;
+M = 2*N + 1;
+
+% set the wavelength to be scanned
+lambda=(0.5:0.01:4)*period;       % [m] incident light wavelength in vaccum
+lambda=lambda+(1e-6)*period;      % [m] incident light wavelength in vaccum, so as to avoid gamma=0
+
+%% Calculation of the reflection spectrum
+powRefl0th=zeros(1,length(lambda));    % [1] 0th order power reflection coefficient
+powTrans0th=zeros(1,length(lambda));   % [1] 0th order power transmission coefficient
+fldRefl0th=zeros(1,length(lambda));    % [1] 0th order field reflection coefficient
+fldTrans0th=zeros(1,length(lambda));   % [1] 0th order field transmission coefficient
+
+counter=1;
+h = waitbar(0,'Calculating...');
+tic;
+for idx=1:length(lambda)
+    [ka, ks, beta] = solveKaKsBeta_OA(a, s, lambda(idx), eBar, uBar, e1, u1, e2, u2, theta, M, isTM);
+    [H, E, ~, gamma] = solveHE_OA(ka, ks, a, s, a+s, eBar, uBar, e1, u1, e2, u2, lambda(idx), theta, N, M, isTM);
+    [powRefl, powTrans, fldRefl, fldTrans,~] = solveRT_OA(H, E, beta, gamma, tg, lambda(idx), e1, u1, a+s, theta, N, M, isTM);
+    powRefl0th(idx)=powRefl((1+end)/2);         % extract the 0th order power reflection coefficient
+    powTrans0th(idx)=powTrans((1+end)/2);       % extract the 0th order power transmission coefficient
+    fldRefl0th(idx)=fldRefl((1+end)/2);         % extract the 0th order field reflection coefficient
+    fldTrans0th(idx)=fldTrans((1+end)/2);       % extract the 0th order field transmision coefficient
+
+%%%% Alternatively, use "OA_solveHCG.m" in the following code    
+%{
+    [fldRefl, fldTrans] = solveHCG_OA(a, s, eBar, uBar, e1, u1, e2, u2, lambda(idx), tg, theta, ord, isTM);    fldRefl0th(idx)=fldRefl((1+end)/2);         % extract the 0th order field reflection coefficient
+    fldRefl0th(idx)=fldRefl((1+end)/2);         % extract the 0th order field reflection coefficient
+    fldTrans0th(idx)=fldTrans((1+end)/2);       % extract the 0th order field transmision coefficient
+    powRefl0th(idx)=(abs(fldRefl0th(idx)))^2;   % the 0th order power reflection coefficient
+    powTrans0th(idx)=(abs(fldTrans0th(idx)))^2; % the 0th order power transmission coefficient
+%}    
+    if (idx>length(lambda)/10*counter)
+        waitbar(idx/length(lambda),h);
+        counter=counter+1;
+    end
+end
+close(h);
+tElapsed=toc;
+fprintf(['Total Calculation Time = ' num2str(tElapsed) ' seconds \n']);
+%   Note N = ord;
+%   powRefl     power reflection coefficient for various orders, formated in (-N, -(N-1), ...-2, -1, 0, 1, 2...N)      [1]
+%   powTrans    power transmission coefficent for various orders, formated in (-N, -(N-1), ...-2, -1, 0, 1, 2...N)     [1] 
+%   fldRefl     field reflection coefficient for various orders, formated in (-N, -(N-1), ...-2, -1, 0, 1, 2...N)      [1] 
+%   fldTrans    field transmission coefficent for various orders, formated in (-N, -(N-1), ...-2, -1, 0, 1, 2...N)     [1]
+
+%% Plot the figure
+figure;  % Power reflectivity
+plot(lambda/period,powRefl0th,'r');
+xlabel('\lambda/\Lambda');
+ylabel('Power Reflectivity');
+
+figure;  % Power transmission coefficient
+plot(lambda/period,powTrans0th,'r');
+xlabel('\lambda/\Lambda');
+ylabel('Power Transmission Coefficient');
+
+figure;  % Reflection phase
+plot(lambda/period,angle(fldRefl0th),'r');
+xlabel('\lambda/\Lambda');
+ylabel('Reflection Phase (rad)');
+
+figure;  % Transmission phase
+plot(lambda/period,angle(fldTrans0th),'r');
+xlabel('\lambda/\Lambda');
+ylabel('Transmission Phase (rad)');
